@@ -46,7 +46,7 @@ class RuleEvaluationContext {
     this.itemsById = new Map();
     
     // Create a lookup map for items by ID
-    this.allItems.forEach(item => {
+    this.allItems.forEach((item) => {
       this.itemsById.set(item._id, item);
     });
   }
@@ -68,7 +68,7 @@ class RuleEvaluationContext {
     rollOptions.push("character");
     
     // Add ancestry options
-    const ancestry = this.allItems.find(item => item.type === "ancestry");
+    const ancestry = this.allItems.find((item) => item.type === "ancestry");
     if (ancestry) {
       const ancestrySlug = ancestry.system.slug || Seasoning.slug(ancestry.name);
       rollOptions.push(`ancestry:${ancestrySlug}`);
@@ -76,7 +76,7 @@ class RuleEvaluationContext {
     }
     
     // Add heritage options
-    const heritage = this.allItems.find(item => item.type === "heritage");
+    const heritage = this.allItems.find((item) => item.type === "heritage");
     if (heritage) {
       const heritageSlug = heritage.system.slug || Seasoning.slug(heritage.name);
       rollOptions.push(`heritage:${heritageSlug}`);
@@ -84,7 +84,7 @@ class RuleEvaluationContext {
     }
     
     // Add class options
-    const characterClass = this.allItems.find(item => item.type === "class");
+    const characterClass = this.allItems.find((item) => item.type === "class");
     if (characterClass) {
       const classSlug = characterClass.system.slug || Seasoning.slug(characterClass.name);
       rollOptions.push(`class:${classSlug}`);
@@ -92,40 +92,40 @@ class RuleEvaluationContext {
     }
     
     // Add background options
-    const background = this.allItems.find(item => item.type === "background");
+    const background = this.allItems.find((item) => item.type === "background");
     if (background) {
       const backgroundSlug = background.system.slug || Seasoning.slug(background.name);
       rollOptions.push(`background:${backgroundSlug}`);
     }
     
     // Add deity options
-    const deity = this.allItems.find(item => item.type === "deity");
+    const deity = this.allItems.find((item) => item.type === "deity");
     if (deity) {
       const deitySlug = deity.system.slug || Seasoning.slug(deity.name);
       rollOptions.push(`deity:${deitySlug}`);
     }
     
     // Add feat-specific roll options
-    this.allItems.filter(item => item.type === "feat").forEach(feat => {
+    this.allItems.filter((item) => item.type === "feat").forEach(feat => {
       const featSlug = feat.system.slug || Seasoning.slug(feat.name);
       rollOptions.push(`feat:${featSlug}`);
       
       // Add trait-based roll options for feats
       if (feat.system?.traits?.value) {
-        feat.system.traits.value.forEach(trait => {
+        feat.system.traits.value.forEach((trait) => {
           rollOptions.push(`trait:${trait}`);
         });
       }
     });
     
     // Add item-specific roll options for other types
-    this.allItems.forEach(item => {
+    this.allItems.forEach((item) => {
       if (item.system?.slug) {
         rollOptions.push(`item:${item.system.slug}`);
         
         // Add trait-based roll options
         if (item.system?.traits?.value) {
-          item.system.traits.value.forEach(trait => {
+          item.system.traits.value.forEach((trait) => {
             rollOptions.push(`trait:${trait}`);
           });
         }
@@ -152,7 +152,7 @@ class RuleEvaluationContext {
         }
         // Add trait-based options
         if (item.system?.traits?.value) {
-          item.system.traits.value.forEach(trait => {
+          item.system.traits.value.forEach((trait) => {
             options.push(`${prefix}:trait:${trait}`);
           });
         }
@@ -160,8 +160,8 @@ class RuleEvaluationContext {
       },
       system: {
         ...item.system,
-        slug: item.system.slug || Seasoning.slug(item.name)
-      }
+        slug: item.system.slug || Seasoning.slug(item.name),
+      },
     };
   }
 
@@ -170,7 +170,7 @@ class RuleEvaluationContext {
    */
   updateItem(item) {
     this.itemsById.set(item._id, foundry.utils.deepClone(item));
-    const index = this.allItems.findIndex(i => i._id === item._id);
+    const index = this.allItems.findIndex((i) => i._id === item._id);
     if (index >= 0) {
       this.allItems[index] = foundry.utils.deepClone(item);
     } else {
@@ -1067,7 +1067,7 @@ export class Pathmuncher {
       includeGrants = false,
       includeFlagsOnly = false,
       otherDocs = [],
-      excludeAddedGrants = false
+      excludeAddedGrants = false,
     } = options;
 
     const currentState = foundry.utils.duplicate(this.result);
@@ -1163,7 +1163,7 @@ export class Pathmuncher {
     // Create in-memory evaluation context instead of temp actor
     const currentItems = this.#buildCurrentItemsForRuleEvaluation([document], processedRules, {
       includeFlagsOnly: true,
-      excludeAddedGrants: true
+      excludeAddedGrants: true,
     });
     const context = new RuleEvaluationContext(this.actor, this.result.character, currentItems);
 
@@ -1287,7 +1287,7 @@ export class Pathmuncher {
           getRollOptions: () => context.getRollOptions(),
           // Add other necessary actor methods as needed
         }, 
-        render: false 
+        render: false, 
       };
       
       await grantItemRule.preCreate({
@@ -1341,7 +1341,7 @@ export class Pathmuncher {
       includePassedDocumentsRules: true,
       includeGrants: false,
       otherDocs: otherDocuments,
-      excludeAddedGrants: true
+      excludeAddedGrants: true,
     });
     const context = new RuleEvaluationContext(this.actor, this.result.character, currentItems);
 
@@ -1396,7 +1396,7 @@ export class Pathmuncher {
   async #checkRulePredicate(document, rule, processedRules) {
     // Create in-memory evaluation context instead of temp actor
     const currentItems = this.#buildCurrentItemsForRuleEvaluation([document], processedRules, {
-      includePassedDocumentsRules: true
+      includePassedDocumentsRules: true,
     });
     const context = new RuleEvaluationContext(this.actor, this.result.character, currentItems);
 
