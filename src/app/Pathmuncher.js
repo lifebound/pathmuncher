@@ -1279,15 +1279,38 @@ export class Pathmuncher {
       const grantItemRule = new game.pf2e.RuleElements.all.GrantItem(cleansedRuleEntry, { parent: item });
       const uuid = grantItemRule.resolveInjectedProperties(grantItemRule.uuid, { warn: false });
 
+      // For simple UUID resolution that doesn't need preCreate, just return the UUID
+      if (uuid && typeof uuid === "string" && uuid.startsWith("Compendium.")) {
+        logger.debug("Simple UUID resolution", {
+          document,
+          ruleEntry,
+          uuid,
+        });
+        return { uuid, grantObject: undefined };
+      }
+
+      // For more complex rules that need preCreate processing
       const tempItems = [];
       let itemUpdates = [];
-      // Create a mock context for preCreate - we don't have a real actor but can simulate it
-      const mockContext = { 
-        parent: {
-          getRollOptions: () => context.getRollOptions(),
-          // Add other necessary actor methods as needed
-        }, 
-        render: false, 
+      
+      // Create a more complete mock context that simulates what preCreate expects
+      const mockParent = {
+        ...this.actor,
+        getRollOptions: () => context.getRollOptions(),
+        items: new Collection(currentItems.map((i) => ({ ...i, parent: this.actor }))),
+        getEmbeddedDocument: (type, id) => {
+          if (type === "Item") {
+            return context.getItem(id);
+          }
+          return null;
+        },
+        system: this.result.character.system,
+      };
+      
+      const mockCreateContext = { 
+        parent: mockParent,
+        render: false,
+        keepId: true,
       };
       
       await grantItemRule.preCreate({
@@ -1295,7 +1318,7 @@ export class Pathmuncher {
         ruleSource: cleansedRuleEntry,
         pendingItems: [item],
         tempItems,
-        context: mockContext,
+        context: mockCreateContext,
         reevaluation: true,
         operation: {
           keepId: 0,
@@ -1322,6 +1345,19 @@ export class Pathmuncher {
         document: foundry.utils.duplicate(document),
         ruleEntry: foundry.utils.duplicate(cleansedRuleEntry),
       });
+      
+      // For simple cases where preCreate fails, try direct UUID resolution
+      try {
+        const grantItemRule = new game.pf2e.RuleElements.all.GrantItem(cleansedRuleEntry, { parent: context.getItem(document._id) });
+        const uuid = grantItemRule.resolveInjectedProperties(grantItemRule.uuid, { warn: false });
+        if (uuid && typeof uuid === "string") {
+          logger.warn("Fallback UUID resolution succeeded", { uuid, document: document.name });
+          return { uuid, grantObject: undefined };
+        }
+      } catch (fallbackErr) {
+        logger.error("Fallback UUID resolution also failed", { fallbackErr });
+      }
+      
       throw err;
     }
 
