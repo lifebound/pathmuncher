@@ -1297,7 +1297,7 @@ export class Pathmuncher {
       const mockParent = {
         ...this.actor,
         getRollOptions: () => context.getRollOptions(),
-        items: new Collection(currentItems.map((i) => ({ ...i, parent: this.actor }))),
+        items: new foundry.utils.Collection(currentItems.map((i) => ({ ...i, parent: this.actor }))),
         getEmbeddedDocument: (type, id) => {
           if (type === "Item") {
             return context.getItem(id);
