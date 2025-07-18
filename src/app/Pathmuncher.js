@@ -1267,17 +1267,24 @@ export class Pathmuncher {
     // Create in-memory evaluation context instead of temp actor
     const currentItems = this.#buildCurrentItemsForRuleEvaluation([document], processedRules);
     const context = new RuleEvaluationContext(this.actor, this.result.character, currentItems);
+    logger.debug(`Resolving injected UUID for ${document.name}`, { document, ruleEntry, processedRules });
 
     const cleansedRuleEntry = foundry.utils.deepClone(ruleEntry);
+    logger.debug("Cleansed Rule Entry", cleansedRuleEntry);
+
     try {
       const item = context.getItem(document._id);
+      logger.debug("Item in context", item);
       if (!item) {
         logger.warn(`Item ${document._id} not found in evaluation context for UUID resolution`);
         return { uuid: undefined, grantObject: undefined };
       }
 
       const grantItemRule = new game.pf2e.RuleElements.all.GrantItem(cleansedRuleEntry, { parent: item });
+      logger.debug("Grant Item Rule", grantItemRule);
+      // Resolve the UUID using the rule's injected properties
       const uuid = grantItemRule.resolveInjectedProperties(grantItemRule.uuid, { warn: false });
+      logger.debug("Resolved UUID", { uuid, document, ruleEntry });
 
       // For simple UUID resolution that doesn't need preCreate, just return the UUID
       if (uuid && typeof uuid === "string" && uuid.startsWith("Compendium.")) {
@@ -1288,7 +1295,7 @@ export class Pathmuncher {
         });
         return { uuid, grantObject: undefined };
       }
-
+      logger.debug("Complex UUID resolution needed", { document, ruleEntry });
       // For more complex rules that need preCreate processing
       const tempItems = [];
       let itemUpdates = [];
@@ -1306,7 +1313,7 @@ export class Pathmuncher {
         },
         system: this.result.character.system,
       };
-      
+      logger.debug("Mock Parent for preCreate", mockParent);
       const mockCreateContext = { 
         parent: mockParent,
         render: false,
