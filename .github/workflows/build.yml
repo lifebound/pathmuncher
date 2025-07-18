@@ -64,18 +64,18 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         artifacts: './module.json,./pathmuncher.zip'  # don't forget to rename module zip thing
         tag: latest
-    - name: Discord notification
-      env:
-        DISCORD_WEBHOOK: ${{ secrets.DISCORD_HOOK }}
-        DISCORD_USERNAME: "Head of Improbable Events (Seeker)"
-      uses: Ilshidur/action-discord@0.3.2
-      with:
-        args: 'Pathmuncher ${{ steps.get-version.outputs.release_version }} has been published by our development Kobolds!'
-    - name: FoundryVTT AutoPublish
-      uses: fjogeleit/http-request-action@v1
-      continue-on-error: true
-      with:
-        url: 'https://api.foundryvtt.com/_api/packages/release_version'
-        method: 'POST'
-        customHeaders: '{"Content-Type": "application/json", "Authorization" : "${{ secrets.FOUNDRY_KEY }}"}'
-        data: '{"dry_run": false, "id" : "pathmuncher", "release": {"version" :  "${{ steps.get-version.outputs.release_version }}", "manifest": "https://github.com/${{ github.repository }}/releases/download/${{ steps.get-version.outputs.release_version }}/module.json", "notes" : "https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md", "compatibility" : {"minimum": "11", "verified": "12", "maximum": ""} } }'
+    # - name: Discord notification
+    #   env:
+    #     DISCORD_WEBHOOK: ${{ secrets.DISCORD_HOOK }}
+    #     DISCORD_USERNAME: "Head of Improbable Events (Seeker)"
+    #   uses: Ilshidur/action-discord@0.3.2
+    #   with:
+    #     args: 'Pathmuncher ${{ steps.get-version.outputs.release_version }} has been published by our development Kobolds!'
+    # - name: FoundryVTT AutoPublish
+    #   uses: fjogeleit/http-request-action@v1
+    #   continue-on-error: true
+    #   with:
+    #     url: 'https://api.foundryvtt.com/_api/packages/release_version'
+    #     method: 'POST'
+    #     customHeaders: '{"Content-Type": "application/json", "Authorization" : "${{ secrets.FOUNDRY_KEY }}"}'
+    #     data: '{"dry_run": false, "id" : "pathmuncher", "release": {"version" :  "${{ steps.get-version.outputs.release_version }}", "manifest": "https://github.com/${{ github.repository }}/releases/download/${{ steps.get-version.outputs.release_version }}/module.json", "notes" : "https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md", "compatibility" : {"minimum": "11", "verified": "12", "maximum": ""} } }'
