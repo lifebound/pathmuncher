@@ -106,7 +106,7 @@ class RuleEvaluationContext {
     }
     
     // Add feat-specific roll options
-    this.allItems.filter((item) => item.type === "feat").forEach(feat => {
+    this.allItems.filter((item) => item.type === "feat").forEach((feat) => {
       const featSlug = feat.system.slug || Seasoning.slug(feat.name);
       rollOptions.push(`feat:${featSlug}`);
       
