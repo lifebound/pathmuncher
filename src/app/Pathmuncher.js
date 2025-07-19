@@ -34,151 +34,6 @@ import utils from "../utils.js";
 import { CompendiumMatcher } from "./CompendiumMatcher.js";
 import { Seasoning } from "./Seasoning.js";
 
-/**
- * In-memory rule evaluation context to replace temp actor usage
- * This simulates the actor environment needed for rule evaluation without creating actual actors
- */
-class RuleEvaluationContext {
-  constructor(baseActor, characterData, allItems) {
-    this.baseActor = baseActor;
-    this.characterData = foundry.utils.deepClone(characterData);
-    this.allItems = foundry.utils.deepClone(allItems);
-    this.itemsById = new Map();
-    
-    // Create a lookup map for items by ID
-    this.allItems.forEach((item) => {
-      this.itemsById.set(item._id, item);
-    });
-  }
-
-  /**
-   * Get roll options that would be available on a temp actor
-   * This simulates actor.getRollOptions() without creating an actor
-   */
-  getRollOptions() {
-    const rollOptions = [];
-    
-    // Add basic character roll options
-    if (this.characterData.system?.details?.level?.value) {
-      rollOptions.push(`character:level:${this.characterData.system.details.level.value}`);
-      rollOptions.push(`level:${this.characterData.system.details.level.value}`);
-    }
-    
-    // Add character type
-    rollOptions.push("character");
-    
-    // Add ancestry options
-    const ancestry = this.allItems.find((item) => item.type === "ancestry");
-    if (ancestry) {
-      const ancestrySlug = ancestry.system.slug || Seasoning.slug(ancestry.name);
-      rollOptions.push(`ancestry:${ancestrySlug}`);
-      rollOptions.push(`trait:${ancestrySlug}`);
-    }
-    
-    // Add heritage options
-    const heritage = this.allItems.find((item) => item.type === "heritage");
-    if (heritage) {
-      const heritageSlug = heritage.system.slug || Seasoning.slug(heritage.name);
-      rollOptions.push(`heritage:${heritageSlug}`);
-      rollOptions.push(`trait:${heritageSlug}`);
-    }
-    
-    // Add class options
-    const characterClass = this.allItems.find((item) => item.type === "class");
-    if (characterClass) {
-      const classSlug = characterClass.system.slug || Seasoning.slug(characterClass.name);
-      rollOptions.push(`class:${classSlug}`);
-      rollOptions.push(`trait:${classSlug}`);
-    }
-    
-    // Add background options
-    const background = this.allItems.find((item) => item.type === "background");
-    if (background) {
-      const backgroundSlug = background.system.slug || Seasoning.slug(background.name);
-      rollOptions.push(`background:${backgroundSlug}`);
-    }
-    
-    // Add deity options
-    const deity = this.allItems.find((item) => item.type === "deity");
-    if (deity) {
-      const deitySlug = deity.system.slug || Seasoning.slug(deity.name);
-      rollOptions.push(`deity:${deitySlug}`);
-    }
-    
-    // Add feat-specific roll options
-    this.allItems.filter((item) => item.type === "feat").forEach((feat) => {
-      const featSlug = feat.system.slug || Seasoning.slug(feat.name);
-      rollOptions.push(`feat:${featSlug}`);
-      
-      // Add trait-based roll options for feats
-      if (feat.system?.traits?.value) {
-        feat.system.traits.value.forEach((trait) => {
-          rollOptions.push(`trait:${trait}`);
-        });
-      }
-    });
-    
-    // Add item-specific roll options for other types
-    this.allItems.forEach((item) => {
-      if (item.system?.slug) {
-        rollOptions.push(`item:${item.system.slug}`);
-        
-        // Add trait-based roll options
-        if (item.system?.traits?.value) {
-          item.system.traits.value.forEach((trait) => {
-            rollOptions.push(`trait:${trait}`);
-          });
-        }
-      }
-    });
-    
-    return rollOptions;
-  }
-
-  /**
-   * Get an item by ID, simulating tempActor.getEmbeddedDocument("Item", id)
-   */
-  getItem(itemId) {
-    const item = this.itemsById.get(itemId);
-    if (!item) return null;
-    
-    // Create a mock item with necessary methods for rule evaluation
-    return {
-      ...item,
-      getRollOptions: (prefix) => {
-        const options = [];
-        if (item.system?.slug) {
-          options.push(`${prefix}:${item.system.slug}`);
-        }
-        // Add trait-based options
-        if (item.system?.traits?.value) {
-          item.system.traits.value.forEach((trait) => {
-            options.push(`${prefix}:trait:${trait}`);
-          });
-        }
-        return options;
-      },
-      system: {
-        ...item.system,
-        slug: item.system.slug || Seasoning.slug(item.name),
-      },
-    };
-  }
-
-  /**
-   * Add or update an item in the context
-   */
-  updateItem(item) {
-    this.itemsById.set(item._id, foundry.utils.deepClone(item));
-    const index = this.allItems.findIndex((i) => i._id === item._id);
-    if (index >= 0) {
-      this.allItems[index] = foundry.utils.deepClone(item);
-    } else {
-      this.allItems.push(foundry.utils.deepClone(item));
-    }
-  }
-}
-
 export class Pathmuncher {
   FEAT_RENAME_MAP(name) {
     const dynamicItems = [
@@ -1164,8 +1019,8 @@ export class Pathmuncher {
     const tempItemData = foundry.utils.deepClone(document);
     if (processedRules.length > 0) {
       tempItemData.system.rules = foundry.utils.deepClone(processedRules.filter((r) => {
-        return ["RollOption", "ActiveEffectLike"].includes(r.key) || 
-               (r.key === "ChoiceSet" && r.selection);
+        return ["RollOption", "ActiveEffectLike"].includes(r.key) 
+               || (r.key === "ChoiceSet" && r.selection);
       }));
     }
     
@@ -1377,8 +1232,8 @@ export class Pathmuncher {
     // Create temporary item on target actor for rule evaluation
     const tempItemData = foundry.utils.deepClone(document);
     tempItemData.system.rules = tempItemData.system.rules.filter((r) => {
-      return ["RollOption", "ActiveEffectLike"].includes(r.key) || 
-             (r.key === "ChoiceSet" && r.selection);
+      return ["RollOption", "ActiveEffectLike"].includes(r.key) 
+             || (r.key === "ChoiceSet" && r.selection);
     });
 
     const tempItem = await Item.create(tempItemData, { parent: this.actor, temporary: true });
@@ -1452,8 +1307,8 @@ export class Pathmuncher {
     const tempItemData = foundry.utils.deepClone(document);
     if (processedRules.length > 0) {
       tempItemData.system.rules = foundry.utils.deepClone(processedRules.filter((r) => {
-        return ["RollOption", "ActiveEffectLike"].includes(r.key) || 
-               (r.key === "ChoiceSet" && r.selection);
+        return ["RollOption", "ActiveEffectLike"].includes(r.key) 
+               || (r.key === "ChoiceSet" && r.selection);
       }));
     }
 
