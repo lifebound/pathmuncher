@@ -1154,38 +1154,40 @@ export class Pathmuncher {
   }
 
   /**
-   * REFACTORED: Evaluate choices without creating a temporary actor
-   * Uses in-memory rule evaluation context instead of temp actor
+   * REFACTORED: Evaluate choices working directly on the target actor
+   * Creates temporary Item documents on the target actor for rule evaluation
    */
   async #evaluateChoices(document, choiceSet, choiceHint, processedRules) {
     logger.debug(`Evaluating choices for ${document.name}`, { document, choiceSet, choiceHint });
     
-    // Create in-memory evaluation context instead of temp actor
-    const currentItems = this.#buildCurrentItemsForRuleEvaluation([document], processedRules, {
-      includeFlagsOnly: true,
-      excludeAddedGrants: true,
-    });
-    const context = new RuleEvaluationContext(this.actor, this.result.character, currentItems);
+    // Create temporary item on target actor for rule evaluation
+    const tempItemData = foundry.utils.deepClone(document);
+    if (processedRules.length > 0) {
+      tempItemData.system.rules = foundry.utils.deepClone(processedRules.filter((r) => {
+        return ["RollOption", "ActiveEffectLike"].includes(r.key) || 
+               (r.key === "ChoiceSet" && r.selection);
+      }));
+    }
+    
+    const tempItem = await Item.create(tempItemData, { parent: this.actor, temporary: true });
+    if (!tempItem) {
+      logger.warn(`Failed to create temporary item for ${document.name}`);
+      return undefined;
+    }
 
     const cleansedChoiceSet = foundry.utils.deepClone(choiceSet);
     try {
-      const item = context.getItem(document._id);
-      if (!item) {
-        logger.warn(`Item ${document._id} not found in evaluation context`);
-        return undefined;
-      }
-
-      const choiceSetRules = new game.pf2e.RuleElements.all.ChoiceSet(cleansedChoiceSet, { parent: item });
+      const choiceSetRules = new game.pf2e.RuleElements.all.ChoiceSet(cleansedChoiceSet, { parent: tempItem });
       const rollOptions = [
-        context.getRollOptions(),
-        item.getRollOptions("parent"),
+        this.actor.getRollOptions(),
+        tempItem.getRollOptions("parent"),
       ].flat();
       const choices = await choiceSetRules.inflateChoices(rollOptions, []);
 
       logger.debug("Starting choice evaluation", {
         document,
         choiceSet,
-        item,
+        tempItem,
         choiceSetRules,
         rollOptions,
         choices,
@@ -1194,8 +1196,8 @@ export class Pathmuncher {
       });
 
       if (cleansedChoiceSet.choices?.query) {
-        const nonFilteredChoices = await choiceSetRules.inflateChoices(rollOptions, [item]);
-        const queryResults = await choiceSetRules.queryCompendium(cleansedChoiceSet.choices, rollOptions, [item]);
+        const nonFilteredChoices = await choiceSetRules.inflateChoices(rollOptions, [tempItem]);
+        const queryResults = await choiceSetRules.queryCompendium(cleansedChoiceSet.choices, rollOptions, [tempItem]);
         logger.debug("Query Result", { queryResults, nonFilteredChoices });
       }
 
@@ -1217,9 +1219,9 @@ export class Pathmuncher {
       let tempSet = foundry.utils.deepClone(choiceSet);
       logger.debug(`Starting dynamic selection for ${document.name}`, { document, choiceSet, tempSet, Pathmuncher: this });
       await choiceSetRules.preCreate({
-        itemSource: item,
+        itemSource: tempItem,
         ruleSource: tempSet,
-        pendingItems: [item],
+        pendingItems: [tempItem],
         tempItems: [],
         operation: {
           keepId: 1,
@@ -1253,6 +1255,11 @@ export class Pathmuncher {
         choiceSet: foundry.utils.duplicate(cleansedChoiceSet),
       });
       throw err;
+    } finally {
+      // Clean up temporary item
+      if (tempItem) {
+        await tempItem.delete();
+      }
     }
 
     logger.debug("Evaluate Choices failed", { choiceSet: cleansedChoiceSet, document });
@@ -1260,31 +1267,28 @@ export class Pathmuncher {
   }
 
   /**
-   * REFACTORED: Resolve injected UUID without creating a temporary actor
-   * Uses in-memory rule evaluation context instead of temp actor
+   * REFACTORED: Resolve injected UUID working directly on the target actor
+   * Creates temporary Item documents on the target actor for rule evaluation
    */
   async #resolveInjectedUuid(document, ruleEntry, processedRules = []) {
-    // Create in-memory evaluation context instead of temp actor
-    const currentItems = this.#buildCurrentItemsForRuleEvaluation([document], processedRules);
-    const context = new RuleEvaluationContext(this.actor, this.result.character, currentItems);
     logger.debug(`Resolving injected UUID for ${document.name}`, { document, ruleEntry, processedRules });
 
+    // Create temporary item on target actor for rule evaluation
+    const tempItemData = foundry.utils.deepClone(document);
+    if (processedRules.length > 0) {
+      tempItemData.system.rules = foundry.utils.deepClone(processedRules);
+    }
+
+    const tempItem = await Item.create(tempItemData, { parent: this.actor, temporary: true });
+    if (!tempItem) {
+      logger.warn(`Failed to create temporary item for ${document.name}`);
+      return { uuid: undefined, grantObject: undefined };
+    }
+
     const cleansedRuleEntry = foundry.utils.deepClone(ruleEntry);
-    logger.debug("Cleansed Rule Entry", cleansedRuleEntry);
-
     try {
-      const item = context.getItem(document._id);
-      logger.debug("Item in context", item);
-      if (!item) {
-        logger.warn(`Item ${document._id} not found in evaluation context for UUID resolution`);
-        return { uuid: undefined, grantObject: undefined };
-      }
-
-      const grantItemRule = new game.pf2e.RuleElements.all.GrantItem(cleansedRuleEntry, { parent: item });
-      logger.debug("Grant Item Rule", grantItemRule);
-      // Resolve the UUID using the rule's injected properties
+      const grantItemRule = new game.pf2e.RuleElements.all.GrantItem(cleansedRuleEntry, { parent: tempItem });
       const uuid = grantItemRule.resolveInjectedProperties(grantItemRule.uuid, { warn: false });
-      logger.debug("Resolved UUID", { uuid, document, ruleEntry });
 
       // For simple UUID resolution that doesn't need preCreate, just return the UUID
       if (uuid && typeof uuid === "string" && uuid.startsWith("Compendium.")) {
@@ -1295,35 +1299,21 @@ export class Pathmuncher {
         });
         return { uuid, grantObject: undefined };
       }
-      logger.debug("Complex UUID resolution needed", { document, ruleEntry });
+
       // For more complex rules that need preCreate processing
       const tempItems = [];
       let itemUpdates = [];
       
-      // Create a more complete mock context that simulates what preCreate expects
-      const mockParent = {
-        ...this.actor,
-        getRollOptions: () => context.getRollOptions(),
-        items: new foundry.utils.Collection(currentItems.map((i) => ({ ...i, parent: this.actor }))),
-        getEmbeddedDocument: (type, id) => {
-          if (type === "Item") {
-            return context.getItem(id);
-          }
-          return null;
-        },
-        system: this.result.character.system,
-      };
-      logger.debug("Mock Parent for preCreate", mockParent);
       const mockCreateContext = { 
-        parent: mockParent,
+        parent: this.actor,
         render: false,
         keepId: true,
       };
       
       await grantItemRule.preCreate({
-        itemSource: item,
+        itemSource: tempItem,
         ruleSource: cleansedRuleEntry,
-        pendingItems: [item],
+        pendingItems: [tempItem],
         tempItems,
         context: mockCreateContext,
         reevaluation: true,
@@ -1336,7 +1326,7 @@ export class Pathmuncher {
       logger.debug("uuid selection", {
         document,
         choiceSet: ruleEntry,
-        item,
+        tempItem,
         grantItemRule,
         uuid,
         tempItems,
@@ -1355,7 +1345,7 @@ export class Pathmuncher {
       
       // For simple cases where preCreate fails, try direct UUID resolution
       try {
-        const grantItemRule = new game.pf2e.RuleElements.all.GrantItem(cleansedRuleEntry, { parent: context.getItem(document._id) });
+        const grantItemRule = new game.pf2e.RuleElements.all.GrantItem(cleansedRuleEntry, { parent: tempItem });
         const uuid = grantItemRule.resolveInjectedProperties(grantItemRule.uuid, { warn: false });
         if (uuid && typeof uuid === "string") {
           logger.warn("Fallback UUID resolution succeeded", { uuid, document: document.name });
@@ -1366,6 +1356,11 @@ export class Pathmuncher {
       }
       
       throw err;
+    } finally {
+      // Clean up temporary item
+      if (tempItem) {
+        await tempItem.delete();
+      }
     }
 
     logger.debug("Evaluate UUID failed", { choiceSet: cleansedRuleEntry, document });
@@ -1373,33 +1368,41 @@ export class Pathmuncher {
   }
 
   /**
-   * REFACTORED: Check rule without creating a temporary actor
-   * Uses in-memory rule evaluation context instead of temp actor
+   * REFACTORED: Check rule working directly on the target actor
+   * Creates temporary Item documents on the target actor for rule evaluation
    */
   async #checkRule(document, rule, otherDocuments = []) {
     logger.debug("Checking rule", { document, rule, otherDocuments });
     
-    // Create in-memory evaluation context instead of temp actor
-    const currentItems = this.#buildCurrentItemsForRuleEvaluation([document], [], {
-      includePassedDocumentsRules: true,
-      includeGrants: false,
-      otherDocs: otherDocuments,
-      excludeAddedGrants: true,
+    // Create temporary item on target actor for rule evaluation
+    const tempItemData = foundry.utils.deepClone(document);
+    tempItemData.system.rules = tempItemData.system.rules.filter((r) => {
+      return ["RollOption", "ActiveEffectLike"].includes(r.key) || 
+             (r.key === "ChoiceSet" && r.selection);
     });
-    const context = new RuleEvaluationContext(this.actor, this.result.character, currentItems);
+
+    const tempItem = await Item.create(tempItemData, { parent: this.actor, temporary: true });
+    if (!tempItem) {
+      logger.warn(`Failed to create temporary item for ${document.name}`);
+      return false;
+    }
+
+    // Also create temporary items for other documents if needed
+    const tempOtherItems = [];
+    for (const otherDoc of otherDocuments) {
+      const tempOtherData = foundry.utils.deepClone(otherDoc);
+      const tempOther = await Item.create(tempOtherData, { parent: this.actor, temporary: true });
+      if (tempOther) {
+        tempOtherItems.push(tempOther);
+      }
+    }
 
     const cleansedRule = foundry.utils.deepClone(rule);
     try {
-      const item = context.getItem(document._id);
-      if (!item) {
-        logger.warn(`Item ${document._id} not found in evaluation context for rule checking`);
-        return false;
-      }
-
       const ruleElement = cleansedRule.key === "ChoiceSet"
-        ? new game.pf2e.RuleElements.all.ChoiceSet(cleansedRule, { parent: item })
-        : new game.pf2e.RuleElements.all.GrantItem(cleansedRule, { parent: item });
-      const rollOptions = [context.getRollOptions(), item.getRollOptions("parent")].flat();
+        ? new game.pf2e.RuleElements.all.ChoiceSet(cleansedRule, { parent: tempItem })
+        : new game.pf2e.RuleElements.all.GrantItem(cleansedRule, { parent: tempItem });
+      const rollOptions = [this.actor.getRollOptions(), tempItem.getRollOptions("parent")].flat();
 
       if (rule.predicate) {
         const predicate = ruleElement.resolveInjectedProperties(ruleElement.predicate);
@@ -1407,7 +1410,7 @@ export class Pathmuncher {
       }
 
       const choices = cleansedRule.key === "ChoiceSet"
-        ? await ruleElement.inflateChoices(rollOptions, [item])
+        ? await ruleElement.inflateChoices(rollOptions, [tempItem])
         : [ruleElement.resolveValue()];
 
       const isGood = cleansedRule.key === "ChoiceSet"
@@ -1416,7 +1419,7 @@ export class Pathmuncher {
 
       logger.debug("Checking rule", {
         cleansedRule,
-        item,
+        tempItem,
         ruleElement,
         rollOptions,
         choices,
@@ -1429,32 +1432,43 @@ export class Pathmuncher {
         rule: cleansedRule,
       });
       throw err;
+    } finally {
+      // Clean up temporary items
+      if (tempItem) {
+        await tempItem.delete();
+      }
+      for (const tempOther of tempOtherItems) {
+        await tempOther.delete();
+      }
     }
   }
 
   /**
-   * REFACTORED: Check rule predicate without creating a temporary actor
-   * Uses in-memory rule evaluation context instead of temp actor
+   * REFACTORED: Check rule predicate working directly on the target actor
+   * Creates temporary Item documents on the target actor for rule evaluation
    */
   async #checkRulePredicate(document, rule, processedRules) {
-    // Create in-memory evaluation context instead of temp actor
-    const currentItems = this.#buildCurrentItemsForRuleEvaluation([document], processedRules, {
-      includePassedDocumentsRules: true,
-    });
-    const context = new RuleEvaluationContext(this.actor, this.result.character, currentItems);
+    // Create temporary item on target actor for rule evaluation
+    const tempItemData = foundry.utils.deepClone(document);
+    if (processedRules.length > 0) {
+      tempItemData.system.rules = foundry.utils.deepClone(processedRules.filter((r) => {
+        return ["RollOption", "ActiveEffectLike"].includes(r.key) || 
+               (r.key === "ChoiceSet" && r.selection);
+      }));
+    }
+
+    const tempItem = await Item.create(tempItemData, { parent: this.actor, temporary: true });
+    if (!tempItem) {
+      logger.warn(`Failed to create temporary item for ${document.name}`);
+      return true; // Default to true if we can't create the item
+    }
 
     const cleansedRule = foundry.utils.deepClone(rule);
     try {
-      const item = context.getItem(document._id);
-      if (!item) {
-        logger.warn(`Item ${document._id} not found in evaluation context for predicate checking`);
-        return true; // Default to true if we can't find the item
-      }
-
       const ruleElement = cleansedRule.key === "ChoiceSet"
-        ? new game.pf2e.RuleElements.all.ChoiceSet(cleansedRule, { parent: item })
-        : new game.pf2e.RuleElements.all.GrantItem(cleansedRule, { parent: item });
-      const rollOptions = [context.getRollOptions(), item.getRollOptions("parent")].flat();
+        ? new game.pf2e.RuleElements.all.ChoiceSet(cleansedRule, { parent: tempItem })
+        : new game.pf2e.RuleElements.all.GrantItem(cleansedRule, { parent: tempItem });
+      const rollOptions = [this.actor.getRollOptions(), tempItem.getRollOptions("parent")].flat();
 
       if (rule.predicate) {
         const predicate = ruleElement.resolveInjectedProperties(ruleElement.predicate);
@@ -1468,6 +1482,11 @@ export class Pathmuncher {
         rule: cleansedRule,
       });
       throw err;
+    } finally {
+      // Clean up temporary item
+      if (tempItem) {
+        await tempItem.delete();
+      }
     }
   }
 
